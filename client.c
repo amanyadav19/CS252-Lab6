@@ -22,14 +22,6 @@
 #define MAXDATASIZE 10000 // max number of bytes we will send
 
 
-// get sockaddr, IPv4 or IPv6:
-void *get_in_addr(struct sockaddr *sa) {
-	if (sa->sa_family == AF_INET) {
-		return &(((struct sockaddr_in*)sa)->sin_addr);
-	}
-	return &(((struct sockaddr_in6*)sa)->sin6_addr);
-}
-
 // function to calculate the size of a file in bytes
 long int findSize(char file_name[])
 {
@@ -59,7 +51,6 @@ int main(int argc, char *argv[]) {
 	char buf[MAXDATASIZE];
 	struct addrinfo hints, *servinfo, *p;
 	int rv;
-	char s[INET6_ADDRSTRLEN];
 
 	memset(&hints, 0, sizeof hints);
 	hints.ai_family = AF_UNSPEC;
@@ -109,61 +100,66 @@ int main(int argc, char *argv[]) {
 	}
 
 
-	inet_ntop(p->ai_family, get_in_addr((struct sockaddr *)p->ai_addr), s, sizeof s);
-	printf("client: connecting to %s\n", s);
 	freeaddrinfo(servinfo); // all done with this structure
 
 	// open the file socket from where we are going to read the data
 	int filefd;
 	filefd = open("send.txt", O_RDONLY);
 
-  if (filefd == -1) {
-      perror("open");
-      exit(EXIT_FAILURE);
-  }
-struct timeval t1, t2;
+	if (filefd == -1) {
+		perror("open");
+		exit(EXIT_FAILURE);
+	}
+
+  	// time structures to finally calculate the time taken to send the file
+	struct timeval t1, t2;
+	// mark the starting time of the transmission
+	gettimeofday(&t1, NULL);
+
 	while (1) {
-    // Read data into buffer.  We may not have enough to fill up buffer, so we
-    // store how many bytes were actually read in bytes_read.
-    int bytes_read = read(filefd, buf, sizeof(buf));
-    if (bytes_read == 0) // We're done reading from the file
-        break;
-    
+
+	    // Read data into buffer.  We may not have enough to fill up buffer, so we
+	    // store how many bytes were actually read in bytes_read.
+	    int bytes_read = read(filefd, buf, sizeof(buf));
+	    if (bytes_read == 0) // We're done reading from the file
+	        break;
+	    
 		if (bytes_read < 0) {
-			// handle errors
+			perror("Reading file");
+	      	exit(EXIT_FAILURE);
 		}
-		// printf("%s\n", buf);
+
 		// You need a loop for the write, because not all of the data may be written
 		// in one call; write will return how many bytes were written. p keeps
 		// track of where in the buffer we are, while we decrement bytes_read
 		// to keep track of how many bytes are left to write.
 		void *buf_temp = buf;
-		
-  	gettimeofday(&t1, NULL);
 		while (bytes_read > 0) {
+			// Send the bytes to the server
 			int bytes_written = send(sockfd, buf_temp, bytes_read, 0);
 			if (bytes_written <= 0) {
-				// handle errors
+				perror("Sending bytes");
+	      		exit(EXIT_FAILURE);
 			}
-			printf("%d\n",bytes_written);
-      bytes_read -= bytes_written;
-      p += bytes_written;
+
+	    	bytes_read -= bytes_written;
+	    	p += bytes_written;
 		}
-		gettimeofday(&t2, NULL);
-		printf("seconds : %ld\n", 
-    t2.tv_sec - t1.tv_sec);
 	}
-	// if ((numbytes = recv(sockfd, buf, MAXDATASIZE-1, 0)) == -1) {
-	// 	perror("recv");
-	// 	exit(1);
-	// }
-	// buf[numbytes] = '\0';
-	// printf("client: received '%s'\n",buf);
+	// mark the end of tranmission
+	gettimeofday(&t2, NULL);
+
+	// calculating the size of the file
 	char file_name[] = { "recv.txt" };
-  long int res = findSize(file_name);
-  if (res != -1)
-      printf("Size of the file is %ld bytes \n", res);
-  printf("thoughput: %f", (float)res/(t2.tv_sec-t1.tv_sec));
+  	long int res = findSize(file_name);
+  	if (res == -1) {
+		perror("Reading file");
+	    exit(EXIT_FAILURE);
+  	}
+
+  	// throughput = file_size(bits) / transfer_time(secs);
+  	float tp = ((float)res * 8)/(t2.tv_sec-t1.tv_sec);
+  	printf("%f\n", tp);
 	close(sockfd);
 	return 0;
 }
